@@ -548,10 +548,100 @@ IMPORTANT:
         });
       });
 
+      // After all validations pass and before returning the data
+      console.log('Generating audio for battle content...');
+      
+      // Generate audio for historical context
+      const contextAudioUrl = await api.generateNarrationAudio(firstPartData.historicalContext);
+      
+      // Generate audio for each scene
+      const sceneAudioUrls = await Promise.all(
+        firstPartData.scenes.map(async (scene) => {
+          return api.generateNarrationAudio(scene.description);
+        })
+      );
+
+      // Add audio URLs to the response
+      firstPartData.audio = {
+        contextAudio: contextAudioUrl,
+        sceneAudios: sceneAudioUrls
+      };
+
       return firstPartData;
 
     } catch (error) {
       console.error('Error fetching battle data:', error);
+      throw error;
+    }
+  },
+
+  generateNarrationAudio: async (text) => {
+    try {
+      console.log('Generating narration for text:', text.substring(0, 100) + '...');
+      
+      if (!openai) {
+        throw new Error('OpenAI client not initialized');
+      }
+
+      if (!text || typeof text !== 'string') {
+        throw new Error('Invalid text input for narration');
+      }
+
+      // Trim and clean the text
+      const cleanText = text.trim().replace(/\s+/g, ' ');
+      
+      if (cleanText.length === 0) {
+        throw new Error('Empty text input for narration');
+      }
+
+      console.log('Making TTS API call...');
+      const response = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "onyx", // Deep, authoritative voice perfect for historical narration
+        input: cleanText,
+        response_format: "mp3",
+      });
+
+      console.log('TTS API call successful, converting to blob...');
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      console.log('Audio URL created:', audioUrl);
+
+      return audioUrl;
+    } catch (error) {
+      console.error('Error in generateNarrationAudio:', error);
+      throw error;
+    }
+  },
+
+  generateBattleNarration: async (battleData) => {
+    try {
+      console.log('Starting battle narration generation...');
+      
+      if (!battleData?.historicalContext || !battleData?.scenes) {
+        throw new Error('Invalid battle data for narration');
+      }
+
+      // Generate audio for historical context
+      console.log('Generating historical context audio...');
+      const contextAudio = await api.generateNarrationAudio(battleData.historicalContext);
+
+      // Generate audio for each scene
+      console.log('Generating scene audio...');
+      const sceneAudios = await Promise.all(
+        battleData.scenes.map(async (scene, index) => {
+          console.log(`Generating audio for scene ${index + 1}...`);
+          return api.generateNarrationAudio(scene.description);
+        })
+      );
+
+      console.log('All audio generated successfully');
+      return {
+        contextAudio,
+        sceneAudios
+      };
+    } catch (error) {
+      console.error('Error in generateBattleNarration:', error);
       throw error;
     }
   }

@@ -5,7 +5,6 @@ import BattleMap from './BattleMap';
 import NarrativePanel from './NarrativePanel';
 import NavigationControls from './NavigationControls';
 import ProgressIndicator from './ProgressIndicator';
-import NarrationToggle from './NarrationToggle';
 import api from '../services/api';
 
 function BattleVisualizer({ battleName, onReset }) {
@@ -81,7 +80,6 @@ function BattleVisualizer({ battleName, onReset }) {
           <NarrativePanel />
           <NavigationControls />
           <ProgressIndicator />
-          <NarrationToggle />
         </>
       )}
     </div>
