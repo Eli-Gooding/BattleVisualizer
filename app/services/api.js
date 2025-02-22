@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import axios from 'axios';
 
 let openai = null;
 
@@ -15,9 +16,26 @@ IMPORTANT VISUALIZATION RULES:
 1. ALL units must remain visible in ALL scenes
 2. Each side should have MULTIPLE units of different types (e.g., both infantry and cavalry units)
 3. When a scene focuses on specific units' actions, other units should still be shown (either in position or moving)
-4. Keep all action within a reasonable view (use ±0.004 lat/lng from center point maximum)
-5. Units should maintain relative positions unless specifically moving
-6. Each army should split their forces into appropriate sub-units (e.g., left wing cavalry, center infantry, etc.)
+4. Units should maintain relative positions unless specifically moving
+5. Each army should split their forces into appropriate sub-units (e.g., left wing cavalry, center infantry, etc.)
+6. Scenes MUST show complete battle progression from start to finish:
+   - Scene 1: Initial deployment/setup
+   - Scene 2: Opening moves/first engagements
+   - Scene 3: Major turning point or decisive action
+   - Scene 4: Battle conclusion and outcome
+
+Coordinate Spacing Rules:
+1. Use relative coordinates to create clear unit separation:
+   - Base coordinate spread should be 0.008 degrees (roughly 800m-1km)
+   - Units within same army: minimum 0.002 degree separation
+   - Opposing armies: minimum 0.004 degree initial separation
+   - Flanking movements: up to 0.006 degree deviation from center
+2. For battles with larger armies or wider frontage:
+   - Scale coordinate spread proportionally to army sizes
+   - Maximum spread of 0.016 degrees for very large battles
+3. For smaller skirmishes or concentrated battles:
+   - Reduce coordinate spread to 0.004-0.006 degrees
+   - Maintain minimum 0.001 degree unit separation
 
 Format the output as JSON with this structure:
 {
@@ -114,170 +132,302 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Mock data for testing visualization
-const MOCK_RESPONSE = {
-  historicalContext: "The Battle of Cannae was a major battle of the Second Punic War that took place on August 2, 216 BC in Apulia, southeastern Italy.",
-  battleInfo: {
-    date: "August 2, 216 BC",
-    location: {
-      name: "Cannae, Apulia, Italy",
-      coordinates: {
-        lat: 41.3057,
-        lng: 16.1322
-      }
-    },
-    armies: {
-      roman: {
-        total: 86400,
-        infantry: 66000,
-        cavalry: 6000
+// Add coordinate normalization helper
+const normalizeCoordinates = (data) => {
+  // Find the center point and spread of all unit positions
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLng = Infinity, maxLng = -Infinity;
+  let totalUnits = 0;
+
+  data.scenes.forEach(scene => {
+    scene.troops.forEach(troop => {
+      minLat = Math.min(minLat, troop.position.lat, troop.movement.to.lat);
+      maxLat = Math.max(maxLat, troop.position.lat, troop.movement.to.lat);
+      minLng = Math.min(minLng, troop.position.lng, troop.movement.to.lng);
+      maxLng = Math.max(maxLng, troop.position.lng, troop.movement.to.lng);
+      totalUnits = Math.max(totalUnits, scene.troops.length);
+    });
+  });
+
+  // Calculate desired spread based on number of units
+  const baseSpread = 0.008; // ~800m-1km
+  const spread = Math.min(0.016, Math.max(0.004, baseSpread * Math.sqrt(totalUnits / 10)));
+  
+  // Current spread
+  const currentLatSpread = maxLat - minLat;
+  const currentLngSpread = maxLng - minLng;
+  
+  // Calculate scaling factors
+  const latScale = spread / (currentLatSpread || 1);
+  const lngScale = spread / (currentLngSpread || 1);
+  
+  // Center point
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+
+  // Normalize all coordinates
+  data.scenes = data.scenes.map(scene => ({
+    ...scene,
+    troops: scene.troops.map(troop => ({
+      ...troop,
+      position: {
+        lat: centerLat + (troop.position.lat - centerLat) * latScale,
+        lng: centerLng + (troop.position.lng - centerLng) * lngScale
       },
-      carthaginian: {
-        total: 50000,
-        infantry: 44000,
-        cavalry: 6000
-      }
-    }
-  },
-  scenes: [
-    {
-      id: 1,
-      title: "Initial Deployment",
-      description: "Romans positioned infantry in center with cavalry on flanks. Carthaginians formed a crescent formation.",
-      troops: [
-        {
-          id: "roman_inf_center",
-          side: "roman",
-          type: "infantry",
-          size: 66000,
-          position: {
-            lat: 41.3057,
-            lng: 16.1322
-          },
-          movement: {
-            to: {
-              lat: 41.3057,
-              lng: 16.1322
-            },
-            type: "static"
-          }
-        },
-        {
-          id: "roman_cav_left",
-          side: "roman",
-          type: "cavalry",
-          size: 3000,
-          position: {
-            lat: 41.3057,
-            lng: 16.1300
-          },
-          movement: {
-            to: {
-              lat: 41.3057,
-              lng: 16.1300
-            },
-            type: "static"
-          }
+      movement: {
+        ...troop.movement,
+        to: {
+          lat: centerLat + (troop.movement.to.lat - centerLat) * latScale,
+          lng: centerLng + (troop.movement.to.lng - centerLng) * lngScale
         }
-      ]
-    }
-  ]
+      }
+    }))
+  }));
+
+  return data;
 };
 
-// The test report content is stored as a constant
-const CANNAE_REPORT = `# Battle of Cannae Report
+// Add position validation helper
+const validateAndCorrectPositions = (data) => {
+  data.scenes.forEach(scene => {
+    // Group troops by side
+    const troopsBySide = {};
+    scene.troops.forEach(troop => {
+      if (!troopsBySide[troop.side]) {
+        troopsBySide[troop.side] = [];
+      }
+      troopsBySide[troop.side].push(troop);
+    });
 
-## Key Points
-- **Date:** August 2, 216 BC
-- **Location:** Near Cannae, Apulia, Italy
-- **Context:** Second Punic War between Rome and Carthage
-- **Outcome:** Hannibal's decisive victory using double envelopment
-- **Casualties:** Rome: 55,000–70,000; Carthage: 5,700–8,000
+    // Process each side's troops
+    Object.values(troopsBySide).forEach(sidesTroops => {
+      // Find center units
+      const centerUnits = sidesTroops.filter(troop => 
+        troop.name.toLowerCase().includes('center') || 
+        troop.id.toLowerCase().includes('center')
+      );
 
-## Historical Context
-The Battle of Cannae, fought on August 2, 216 BC, was a critical engagement in the Second Punic War (218–201 BC), a conflict ignited by Carthage's expansion in Spain. Hannibal Barca, after crossing the Alps in 218 BC with his army and elephants, had already defeated Roman forces at Trebia (218 BC) and Lake Trasimene (217 BC). Frustrated by Rome's attrition strategy under Fabius Maximus, the Romans raised an unprecedented army of ~86,400 men under consuls Lucius Aemilius Paullus and Gaius Terentius Varro to confront Hannibal, who had seized the Roman supply depot at Cannae.
+      if (centerUnits.length > 0) {
+        const centerUnit = centerUnits[0];
+        const centerLng = centerUnit.position.lng;
 
-## Battle Details
-- **Date and Location:** August 2, 216 BC, near Cannae, Apulia, Italy (approx. 41°18′23″N, 16°7′57″E)
-- **Armies Involved:**
-  - **Rome:** ~86,400 men
-    - Roman infantry: 24,000
-    - Roman cavalry: 1,800
-    - Allied infantry: 42,000
-    - Allied cavalry: 4,200
-  - **Carthage:** ~50,000 men
-    - African infantry: 12,000
-    - African cavalry: 4,000
-    - Spanish/Gallic infantry: 32,000
-    - Spanish/Gallic cavalry: 6,000–7,000
+        // Adjust other units relative to center
+        sidesTroops.forEach(troop => {
+          const name = troop.name.toLowerCase();
+          const id = troop.id.toLowerCase();
 
-### Sequence of Events
-| **Phase**            | **Description**                                                                 |
-|-----------------------|---------------------------------------------------------------------------------|
-| Initial Engagement   | Roman infantry advances, pushing Carthaginian center back in a controlled retreat. |
-| Cavalry Engagements  | Carthaginian heavy cavalry routs Roman cavalry; Numidians pin allied cavalry. |
-| Encirclement         | African infantry and cavalry encircle Romans, closing the trap.                |
-| Massacre             | Encircled Romans are systematically destroyed.                                 |
+          // Skip center units
+          if (name.includes('center') || id.includes('center')) return;
 
-### Troop Movements
-| **Stage**            | **Description**                                                                                       |
-|-----------------------|-----------------------------------------------------------------------------------------------|
-| Initial Deployment   | Romans: Infantry (-100, 100) to (100, 150), Heavy Cav (-100, 150) to (-150, 200), Light Cav (100, 150) to (150, 200). Carthage: Center (-80, -50) to (80, 0), African Flanks (-80, 0) to (-120, 50) & (80, 0) to (120, 50), Heavy Cav (120, 0) to (150, 50), Numidian Cav (-120, 0) to (-150, 50). |
-| Roman Advance        | Infantry moves from y=100 to y=0; Carthaginian center retreats to y=-20.                     |
-| Cavalry Engagements  | Heavy Cav moves from x=120 to x=-100 to x=100 at y=120; Numidians engage at Roman right.    |
-| Encirclement         | African infantry closes in; Heavy Cav attacks from rear.                                     |
-| Massacre             | Encircled Roman forces diminish rapidly.                                                    |`;
+          const isLeft = name.includes('left') || id.includes('left');
+          const isRight = name.includes('right') || id.includes('right');
+
+          if (isLeft && troop.position.lng >= centerLng) {
+            // Move left unit to the left of center
+            const offset = Math.abs(troop.position.lng - centerLng) + 0.002;
+            troop.position.lng = centerLng - offset;
+            troop.movement.to.lng = troop.movement.type === 'static' ? 
+              troop.position.lng : 
+              centerLng - (Math.abs(troop.movement.to.lng - centerLng) + 0.002);
+          } else if (isRight && troop.position.lng <= centerLng) {
+            // Move right unit to the right of center
+            const offset = Math.abs(troop.position.lng - centerLng) + 0.002;
+            troop.position.lng = centerLng + offset;
+            troop.movement.to.lng = troop.movement.type === 'static' ? 
+              troop.position.lng : 
+              centerLng + (Math.abs(troop.movement.to.lng - centerLng) + 0.002);
+          }
+        });
+      }
+
+      // Handle cavalry positioning
+      const infantryUnits = sidesTroops.filter(troop => 
+        troop.type.toLowerCase().includes('infantry')
+      );
+      const cavalryUnits = sidesTroops.filter(troop => 
+        troop.type.toLowerCase().includes('cavalry')
+      );
+
+      if (infantryUnits.length > 0 && cavalryUnits.length > 0) {
+        const infantryCenter = infantryUnits.reduce((sum, unit) => sum + unit.position.lng, 0) / infantryUnits.length;
+        
+        cavalryUnits.forEach(cavalry => {
+          const name = cavalry.name.toLowerCase();
+          const id = cavalry.id.toLowerCase();
+          
+          if (name.includes('left') || id.includes('left')) {
+            // Ensure left cavalry is further left than infantry
+            const leftmostInfantry = Math.min(...infantryUnits.map(u => u.position.lng));
+            if (cavalry.position.lng >= leftmostInfantry) {
+              cavalry.position.lng = leftmostInfantry - 0.003;
+              if (cavalry.movement.type === 'static') {
+                cavalry.movement.to.lng = cavalry.position.lng;
+              }
+            }
+          } else if (name.includes('right') || id.includes('right')) {
+            // Ensure right cavalry is further right than infantry
+            const rightmostInfantry = Math.max(...infantryUnits.map(u => u.position.lng));
+            if (cavalry.position.lng <= rightmostInfantry) {
+              cavalry.position.lng = rightmostInfantry + 0.003;
+              if (cavalry.movement.type === 'static') {
+                cavalry.movement.to.lng = cavalry.position.lng;
+              }
+            }
+          }
+        });
+      }
+    });
+  });
+
+  return data;
+};
 
 const api = {
   getBattleData: async (battleName) => {
     try {
-      // Read the battle report based on the battle name
-      const response = await fetch(`/api/battle`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ battleName }),
-      });
+      // Step 1: Search for the battle page using opensearch
+      const searchQuery = battleName.trim().replace(/^(the\s+)?(battle\s+of\s+)/i, '');
+      const encodedSearchQuery = encodeURIComponent(searchQuery);
+      let battleReport;
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch battle data');
+      try {
+        // First, search for potential matches
+        const searchResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
+          params: {
+            action: 'opensearch',
+            search: encodedSearchQuery,
+            namespace: 0, // Main namespace only
+            limit: 5, // Get top 5 results
+            format: 'json',
+            origin: '*'
+          }
+        });
+
+        const [_, titles, descriptions, urls] = searchResponse.data;
+        
+        // Find the most relevant battle result
+        let battleTitle = null;
+        for (let i = 0; i < titles.length; i++) {
+          const title = titles[i].toLowerCase();
+          const desc = descriptions[i].toLowerCase();
+          // Check if it's likely a battle page
+          if (
+            title.includes('battle') || 
+            desc.includes('battle') || 
+            desc.includes('military') ||
+            desc.includes('fought') ||
+            desc.includes('conflict')
+          ) {
+            battleTitle = titles[i];
+            break;
+          }
+        }
+
+        if (!battleTitle) {
+          // Try with "Battle of" prefix
+          const retryResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
+            params: {
+              action: 'opensearch',
+              search: `Battle of ${encodedSearchQuery}`,
+              namespace: 0,
+              limit: 5,
+              format: 'json',
+              origin: '*'
+            }
+          });
+
+          const [_, retryTitles, retryDescriptions] = retryResponse.data;
+          for (let i = 0; i < retryTitles.length; i++) {
+            const title = retryTitles[i].toLowerCase();
+            const desc = retryDescriptions[i].toLowerCase();
+            if (
+              title.includes('battle') || 
+              desc.includes('battle') || 
+              desc.includes('military') ||
+              desc.includes('fought') ||
+              desc.includes('conflict')
+            ) {
+              battleTitle = retryTitles[i];
+              break;
+            }
+          }
+        }
+
+        if (!battleTitle) {
+          throw new Error(`No battle found matching: ${battleName}`);
+        }
+
+        // Now fetch the content for the found battle
+        const contentResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
+          params: {
+            action: 'query',
+            prop: 'extracts',
+            exintro: true,
+            explaintext: true,
+            titles: battleTitle,
+            format: 'json',
+            origin: '*'
+          }
+        });
+
+        const pages = contentResponse.data.query.pages;
+        const pageId = Object.keys(pages)[0];
+        
+        if (pageId === '-1' || !pages[pageId].extract) {
+          throw new Error('Failed to fetch battle content');
+        }
+
+        battleReport = pages[pageId].extract;
+
+        if (!battleReport || battleReport.trim().length === 0) {
+          throw new Error('Wikipedia page found but no content extracted');
+        }
+
+        console.log(`Found battle: ${battleTitle}`);
+
+      } catch (wikiError) {
+        console.error('Wikipedia API error:', wikiError);
+        throw new Error(`Failed to fetch battle information: ${wikiError.message}`);
       }
 
-      const reportData = await response.json();
-      
-      // First call: Get battle info and first 2 scenes
+      // Step 2: First OpenAI call - Battle info and first 2 scenes
       const firstCall = await openai.chat.completions.create({
         model: "gpt-4",
         messages: [
           {
             role: "system",
-            content: `You are a military history expert. Given a battle report, extract key information and structure it for visualization. For this first call, provide ONLY the battle info and first 2 scenes.
+            content: `You are a military history expert. Given a Wikipedia page extract for a battle, extract key information and structure it for visualization. For this first call, provide ONLY the historical context, battle info, and the first 2 scenes.
 
 ${PROMPT_RULES_AND_FORMAT}
 
-IMPORTANT: For this first call, include ONLY scenes 1 and 2. The remaining scenes will be requested in a second call.`
+IMPORTANT: Include ONLY scenes 1 and 2. The remaining scenes will be requested in a second call. Aim for 3-4 total scenes.`
           },
           {
             role: "user",
-            content: reportData.report
+            content: battleReport
           }
         ],
         temperature: 0.5,
         max_tokens: 4000
       });
 
-      // Parse first response
-      console.log('First OpenAI Response:', firstCall.choices[0].message.content);
-      let firstPartData = JSON.parse(firstCall.choices[0].message.content);
+      let firstPartData;
+      try {
+        firstPartData = JSON.parse(firstCall.choices[0].message.content);
+        console.log('First OpenAI Response:', firstPartData);
+      } catch (parseError) {
+        console.error('Failed to parse first OpenAI response:', parseError);
+        console.error('Raw response:', firstCall.choices[0].message.content);
+        throw new Error('Failed to parse battle data from first OpenAI response');
+      }
 
-      // Second call: Get remaining scenes
+      // Step 3: Second OpenAI call - Remaining scenes (3 and 4)
       const secondCall = await openai.chat.completions.create({
         model: "gpt-4",
         messages: [
           {
             role: "system",
-            content: `You are a military history expert. Given a battle report and its initial scenes, provide the remaining scenes (3 and 4) maintaining consistency with the previous scenes.
+            content: `You are a military history expert. Given a Wikipedia page extract and initial battle data, provide the remaining scenes (3 and 4) maintaining consistency with the previous scenes.
 
 The battle data so far:
 ${JSON.stringify(firstPartData, null, 2)}
@@ -306,37 +456,67 @@ Format your response as a JSON array of ONLY the remaining scenes, following thi
   }
 ]
 
-IMPORTANT: 
-1. Use the EXACT SAME unit IDs as shown in the previous scenes
+IMPORTANT:
+1. Use the EXACT SAME unit IDs as in the previous scenes
 2. Maintain army names and unit types exactly as shown
 3. Start with Scene 3 (id: 3)
-4. Show ALL units in EVERY scene
-5. Keep coordinates within ±0.004 of the battle center (${firstPartData.battleInfo.location.coordinates.lat}, ${firstPartData.battleInfo.location.coordinates.lng})
-6. Ensure movements and status changes follow logically from the previous scenes
-7. Return ONLY an array of new scenes - do not include any other fields`
+4. Provide up to Scene 4 (id: 4) to reach 3-4 total scenes
+5. Show ALL units in EVERY scene
+6. Position units relative to each other based on their tactical roles and movements
+7. Ensure movements and status changes follow logically from the previous scenes
+8. Return ONLY an array of new scenes`
           },
           {
             role: "user",
-            content: reportData.report
+            content: battleReport
           }
         ],
         temperature: 0.5,
         max_tokens: 4000
       });
 
-      // Parse second response
-      console.log('Second OpenAI Response:', secondCall.choices[0].message.content);
-      let remainingScenes = JSON.parse(secondCall.choices[0].message.content);
+      let remainingScenes;
+      try {
+        remainingScenes = JSON.parse(secondCall.choices[0].message.content);
+        console.log('Second OpenAI Response:', remainingScenes);
+      } catch (parseError) {
+        console.error('Failed to parse second OpenAI response:', parseError);
+        console.error('Raw response:', secondCall.choices[0].message.content);
+        throw new Error('Failed to parse remaining scenes from second OpenAI response');
+      }
 
       // Combine the responses
       firstPartData.scenes = [...firstPartData.scenes, ...remainingScenes];
 
-      // Validate the combined data structure
+      // After normalizing coordinates but before validation
+      firstPartData = normalizeCoordinates(firstPartData);
+      firstPartData = validateAndCorrectPositions(firstPartData);
+
+      // Validate scene progression
+      const sceneTypes = ['initial deployment', 'opening moves', 'turning point', 'conclusion'];
+      const scenes = firstPartData.scenes;
+      
+      if (scenes.length < 4) {
+        throw new Error('Invalid scene progression: need 4 scenes to show complete battle');
+      }
+
+      // Verify scene progression
+      if (!scenes[0].title.toLowerCase().includes('initial') && 
+          !scenes[0].description.toLowerCase().includes('initial')) {
+        console.warn('First scene may not show initial deployment');
+      }
+
+      if (!scenes[scenes.length - 1].title.toLowerCase().includes('conclusion') && 
+          !scenes[scenes.length - 1].description.toLowerCase().includes('conclusion') &&
+          !scenes[scenes.length - 1].description.toLowerCase().includes('outcome')) {
+        console.warn('Final scene may not show battle conclusion');
+      }
+
+      // Step 4: Validation
       if (!firstPartData.scenes || !Array.isArray(firstPartData.scenes)) {
         throw new Error('Invalid data structure: missing scenes array');
       }
 
-      // Validate armies object
       if (!firstPartData.battleInfo?.armies || typeof firstPartData.battleInfo.armies !== 'object') {
         throw new Error('Invalid data structure: missing or invalid armies object');
       }
@@ -346,7 +526,6 @@ IMPORTANT:
         throw new Error('Invalid data structure: at least two armies are required');
       }
 
-      // Ensure each army has required fields
       armyIds.forEach(armyId => {
         const army = firstPartData.battleInfo.armies[armyId];
         if (!army.name || !army.color || !army.commander) {
@@ -354,20 +533,16 @@ IMPORTANT:
         }
       });
 
-      // Ensure each scene has the required fields
       firstPartData.scenes.forEach((scene, index) => {
         if (!scene.troops || !Array.isArray(scene.troops)) {
           throw new Error(`Invalid scene ${index + 1}: missing troops array`);
         }
-        
-        // Ensure each troop has required fields and valid army reference
         scene.troops.forEach((troop, troopIndex) => {
           if (!armyIds.includes(troop.side)) {
             throw new Error(`Scene ${index + 1}, Troop ${troopIndex + 1}: Invalid army reference "${troop.side}"`);
           }
-          
           if (!troop.status || !['active', 'routed', 'defeated'].includes(troop.status)) {
-            console.warn(`Scene ${index + 1}, Troop ${troopIndex + 1}: Missing or invalid status. Setting to "active".`);
+            console.warn(`Scene ${index + 1}, Troop ${troopIndex + 1}: Invalid status. Setting to "active".`);
             troop.status = 'active';
           }
         });
@@ -382,4 +557,4 @@ IMPORTANT:
   }
 };
 
-export default api; 
+export default api;
