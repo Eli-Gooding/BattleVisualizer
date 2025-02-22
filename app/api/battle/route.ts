@@ -41,6 +41,7 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "infantry",
           size: 80000,
+          status: "active",
           position: {
             lat: 41.3057,
             lng: 16.1322
@@ -58,6 +59,7 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "cavalry",
           size: 3200,
+          status: "active",
           position: {
             lat: 41.3067,
             lng: 16.1300
@@ -75,6 +77,7 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "cavalry",
           size: 3200,
+          status: "active",
           position: {
             lat: 41.3047,
             lng: 16.1344
@@ -92,6 +95,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "infantry",
           size: 20000,
+          status: "active",
           position: {
             lat: 41.3087,
             lng: 16.1322
@@ -109,6 +113,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "cavalry",
           size: 5000,
+          status: "active",
           position: {
             lat: 41.3097,
             lng: 16.1300
@@ -126,6 +131,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "cavalry",
           size: 5000,
+          status: "active",
           position: {
             lat: 41.3077,
             lng: 16.1344
@@ -150,6 +156,7 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "infantry",
           size: 80000,
+          status: "active",
           position: {
             lat: 41.3067,
             lng: 16.1322
@@ -167,14 +174,15 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "cavalry",
           size: 3200,
+          status: "routed",
           position: {
             lat: 41.3067,
             lng: 16.1300
           },
           movement: {
             to: {
-              lat: 41.3077,
-              lng: 16.1290
+              lat: 41.3067,
+              lng: 16.1200
             },
             type: "retreat"
           }
@@ -184,14 +192,15 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "cavalry",
           size: 3200,
+          status: "routed",
           position: {
             lat: 41.3047,
             lng: 16.1344
           },
           movement: {
             to: {
-              lat: 41.3037,
-              lng: 16.1354
+              lat: 41.3047,
+              lng: 16.1444
             },
             type: "retreat"
           }
@@ -201,6 +210,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "infantry",
           size: 20000,
+          status: "active",
           position: {
             lat: 41.3087,
             lng: 16.1322
@@ -218,6 +228,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "cavalry",
           size: 5000,
+          status: "active",
           position: {
             lat: 41.3097,
             lng: 16.1300
@@ -235,6 +246,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "cavalry",
           size: 5000,
+          status: "active",
           position: {
             lat: 41.3077,
             lng: 16.1344
@@ -259,6 +271,7 @@ const MOCK_RESPONSE = {
           side: "roman",
           type: "infantry",
           size: 80000,
+          status: "defeated",
           position: {
             lat: 41.3077,
             lng: 16.1322
@@ -276,6 +289,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "infantry",
           size: 20000,
+          status: "active",
           position: {
             lat: 41.3077,
             lng: 16.1322
@@ -293,6 +307,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "infantry",
           size: 10000,
+          status: "active",
           position: {
             lat: 41.3077,
             lng: 16.1290
@@ -310,6 +325,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "infantry",
           size: 10000,
+          status: "active",
           position: {
             lat: 41.3077,
             lng: 16.1354
@@ -327,6 +343,7 @@ const MOCK_RESPONSE = {
           side: "carthaginian",
           type: "cavalry",
           size: 10000,
+          status: "active",
           position: {
             lat: 41.3057,
             lng: 16.1322
