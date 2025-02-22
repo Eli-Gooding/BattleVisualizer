@@ -1,0 +1,19 @@
+app/
+├── components/
+│   ├── SearchBar.js           # User input for battle name
+│   ├── BattleVisualizer.js    # Main container for battle content
+│   ├── HistoricalContext.js   # Displays historical background
+│   ├── BattleMap.js           # Interactive map with troop movements
+│   ├── NarrativePanel.js      # Text descriptions for each scene
+│   ├── NavigationControls.js  # Next/Previous scene buttons
+│   ├── ProgressIndicator.js   # Timeline or scene selector
+│   └── NarrationToggle.js     # Toggle for voice narration
+├── contexts/
+│   └── BattleContext.js       # Manages battle data and state
+├── services/
+│   ├── api.js                 # API calls to backend
+│   └── tts.js                 # Text-to-speech integration
+├── styles/
+│   └── tailwind.css           # Tailwind CSS configuration
+├── App.js                     # Root component
+└── index.js                   # Entry point
