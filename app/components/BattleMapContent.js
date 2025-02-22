@@ -24,16 +24,21 @@ function BattleMapContent({ battleData, currentScene }) {
       }).addTo(mapInstanceRef.current);
 
       // Create SVG layer for D3
-      const svg = d3.select(mapInstanceRef.current.getPanes().overlayPane)
+      const svg = d3.select(mapRef.current)
         .append('svg')
+        .style('position', 'absolute')
+        .style('top', '0')
+        .style('left', '0')
+        .style('z-index', '1000')
         .attr('width', '100%')
-        .attr('height', '100%');
+        .attr('height', '100%')
+        .attr('pointer-events', 'none');
       
       svgLayerRef.current = svg.append('g')
         .attr('class', 'leaflet-zoom-hide');
 
       // Handle zoom events
-      mapInstanceRef.current.on('zoom', () => {
+      mapInstanceRef.current.on('zoom moveend', () => {
         updateTroopPositions();
       });
     }
@@ -80,7 +85,10 @@ function BattleMapContent({ battleData, currentScene }) {
         .attr('fill', troop.side === 'roman' ? '#e63946' : '#1d3557')
         .attr('opacity', 0.7)
         .attr('stroke', '#fff')
-        .attr('stroke-width', 1);
+        .attr('stroke-width', 1)
+        .attr('pointer-events', 'all')
+        .append('title')
+        .text(`${troop.side} ${troop.type} - ${troop.size} troops`);
 
       // Add type indicator
       if (troop.type === 'cavalry') {
@@ -131,7 +139,7 @@ function BattleMapContent({ battleData, currentScene }) {
   }, [battleData, currentScene]);
 
   return (
-    <div className="w-full h-96 bg-gray-700 rounded relative">
+    <div className="w-full h-[75vh] bg-gray-700 rounded relative">
       <div ref={mapRef} className="w-full h-full" />
       {battleData && battleData.scenes[currentScene] && (
         <div className="absolute top-0 left-0 bg-black bg-opacity-50 text-white p-2 m-2 rounded">
