@@ -2,6 +2,110 @@ import OpenAI from 'openai';
 
 let openai = null;
 
+const PROMPT_RULES_AND_FORMAT = `RESPONSE FORMAT REQUIREMENTS:
+1. Response must be valid, complete JSON
+2. No trailing commas in arrays or objects
+3. All coordinates must be numbers, not strings
+4. Keep scene descriptions concise
+5. Use short but descriptive unit names
+6. Limit the total response size
+7. DO NOT include any text outside the JSON structure
+
+IMPORTANT VISUALIZATION RULES:
+1. ALL units must remain visible in ALL scenes
+2. Each side should have MULTIPLE units of different types (e.g., both infantry and cavalry units)
+3. When a scene focuses on specific units' actions, other units should still be shown (either in position or moving)
+4. Keep all action within a reasonable view (use ±0.004 lat/lng from center point maximum)
+5. Units should maintain relative positions unless specifically moving
+6. Each army should split their forces into appropriate sub-units (e.g., left wing cavalry, center infantry, etc.)
+
+Format the output as JSON with this structure:
+{
+  "historicalContext": "string",
+  "battleInfo": {
+    "date": "string",
+    "location": {
+      "name": "string",
+      "coordinates": {
+        "lat": number,
+        "lng": number
+      }
+    },
+    "armies": {
+      [armyId: string]: {
+        "name": "string (full name of the army/faction)",
+        "total": number,
+        "infantry": number,
+        "cavalry": number,
+        "color": "string (hex color code for visualization)",
+        "commander": "string (name of commanding officer)"
+      }
+    }
+  },
+  "scenes": [
+    {
+      "id": number,
+      "title": "string",
+      "description": "string",
+      "troops": [
+        {
+          "id": "string (unique identifier for this unit, e.g., 'roman_left_infantry')",
+          "side": "string (matching an armyId from armies object)",
+          "type": "string (unit type based on the historical context)",
+          "name": "string (descriptive name of the unit, e.g., 'Left Wing Heavy Infantry')",
+          "size": number,
+          "status": "active|routed|defeated",
+          "position": {
+            "lat": number,
+            "lng": number
+          },
+          "movement": {
+            "to": {
+              "lat": number,
+              "lng": number
+            },
+            "type": "advance|retreat|flank|static"
+          }
+        }
+      ]
+    }
+  ]
+}
+
+Unit Distribution Rules:
+1. EACH army must be split into multiple units:
+   - Infantry should be divided into at least 2-3 units (e.g., center, left wing, right wing)
+   - Cavalry should be divided into at least 2 units (left and right wings)
+   - Additional specialized units as historically appropriate
+2. Unit sizes should reflect historical records:
+   - Main infantry units: ~30-40% of total infantry
+   - Wing infantry units: ~20-30% each
+   - Cavalry wings: Split based on historical records
+   - Specialized units: Historically accurate sizes
+
+Positioning Rules:
+1. Initial Deployment (Scene 1):
+   - Center point is the battle location coordinates
+   - Infantry units spaced ±0.002 lat/lng from center
+   - Cavalry units on flanks (±0.003 lat/lng from center)
+   - Maintain historical formation patterns
+2. Subsequent Scenes:
+   - ALL units must be present in EVERY scene
+   - Update positions only for units actively moving
+   - Static units keep their previous positions
+   - Show simultaneous movements when historically accurate
+3. Status Changes:
+   - All units start as "active"
+   - Update to "routed" when forced to retreat
+   - Update to "defeated" when destroyed/captured
+   - Status changes should affect specific units, not entire armies at once
+
+Movement Types:
+- "advance": Moving forward to engage
+- "retreat": Falling back under pressure
+- "flank": Moving to attack enemy flanks/rear
+- "static": Holding position`;
+
 // Initialize OpenAI only on the client side
 if (typeof window !== 'undefined') {
   openai = new OpenAI({
@@ -127,7 +231,8 @@ The Battle of Cannae, fought on August 2, 216 BC, was a critical engagement in t
 const api = {
   getBattleData: async (battleName) => {
     try {
-      const response = await fetch('/api/battle', {
+      // Read the battle report based on the battle name
+      const response = await fetch(`/api/battle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -136,12 +241,140 @@ const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch battle data');
+        throw new Error('Failed to fetch battle data');
       }
 
-      const data = await response.json();
-      return data;
+      const reportData = await response.json();
+      
+      // First call: Get battle info and first 2 scenes
+      const firstCall = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: `You are a military history expert. Given a battle report, extract key information and structure it for visualization. For this first call, provide ONLY the battle info and first 2 scenes.
+
+${PROMPT_RULES_AND_FORMAT}
+
+IMPORTANT: For this first call, include ONLY scenes 1 and 2. The remaining scenes will be requested in a second call.`
+          },
+          {
+            role: "user",
+            content: reportData.report
+          }
+        ],
+        temperature: 0.5,
+        max_tokens: 4000
+      });
+
+      // Parse first response
+      console.log('First OpenAI Response:', firstCall.choices[0].message.content);
+      let firstPartData = JSON.parse(firstCall.choices[0].message.content);
+
+      // Second call: Get remaining scenes
+      const secondCall = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: `You are a military history expert. Given a battle report and its initial scenes, provide the remaining scenes (3 and 4) maintaining consistency with the previous scenes.
+
+The battle data so far:
+${JSON.stringify(firstPartData, null, 2)}
+
+Format your response as a JSON array of ONLY the remaining scenes, following this structure:
+[
+  {
+    "id": number,
+    "title": "string",
+    "description": "string",
+    "troops": [
+      {
+        "id": "string",
+        "side": "string",
+        "type": "string",
+        "name": "string",
+        "size": number,
+        "status": "active|routed|defeated",
+        "position": {"lat": number, "lng": number},
+        "movement": {
+          "to": {"lat": number, "lng": number},
+          "type": "advance|retreat|flank|static"
+        }
+      }
+    ]
+  }
+]
+
+IMPORTANT: 
+1. Use the EXACT SAME unit IDs as shown in the previous scenes
+2. Maintain army names and unit types exactly as shown
+3. Start with Scene 3 (id: 3)
+4. Show ALL units in EVERY scene
+5. Keep coordinates within ±0.004 of the battle center (${firstPartData.battleInfo.location.coordinates.lat}, ${firstPartData.battleInfo.location.coordinates.lng})
+6. Ensure movements and status changes follow logically from the previous scenes
+7. Return ONLY an array of new scenes - do not include any other fields`
+          },
+          {
+            role: "user",
+            content: reportData.report
+          }
+        ],
+        temperature: 0.5,
+        max_tokens: 4000
+      });
+
+      // Parse second response
+      console.log('Second OpenAI Response:', secondCall.choices[0].message.content);
+      let remainingScenes = JSON.parse(secondCall.choices[0].message.content);
+
+      // Combine the responses
+      firstPartData.scenes = [...firstPartData.scenes, ...remainingScenes];
+
+      // Validate the combined data structure
+      if (!firstPartData.scenes || !Array.isArray(firstPartData.scenes)) {
+        throw new Error('Invalid data structure: missing scenes array');
+      }
+
+      // Validate armies object
+      if (!firstPartData.battleInfo?.armies || typeof firstPartData.battleInfo.armies !== 'object') {
+        throw new Error('Invalid data structure: missing or invalid armies object');
+      }
+
+      const armyIds = Object.keys(firstPartData.battleInfo.armies);
+      if (armyIds.length < 2) {
+        throw new Error('Invalid data structure: at least two armies are required');
+      }
+
+      // Ensure each army has required fields
+      armyIds.forEach(armyId => {
+        const army = firstPartData.battleInfo.armies[armyId];
+        if (!army.name || !army.color || !army.commander) {
+          throw new Error(`Invalid army data for ${armyId}: missing required fields`);
+        }
+      });
+
+      // Ensure each scene has the required fields
+      firstPartData.scenes.forEach((scene, index) => {
+        if (!scene.troops || !Array.isArray(scene.troops)) {
+          throw new Error(`Invalid scene ${index + 1}: missing troops array`);
+        }
+        
+        // Ensure each troop has required fields and valid army reference
+        scene.troops.forEach((troop, troopIndex) => {
+          if (!armyIds.includes(troop.side)) {
+            throw new Error(`Scene ${index + 1}, Troop ${troopIndex + 1}: Invalid army reference "${troop.side}"`);
+          }
+          
+          if (!troop.status || !['active', 'routed', 'defeated'].includes(troop.status)) {
+            console.warn(`Scene ${index + 1}, Troop ${troopIndex + 1}: Missing or invalid status. Setting to "active".`);
+            troop.status = 'active';
+          }
+        });
+      });
+
+      return firstPartData;
+
     } catch (error) {
       console.error('Error fetching battle data:', error);
       throw error;

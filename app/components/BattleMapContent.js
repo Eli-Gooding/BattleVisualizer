@@ -101,9 +101,11 @@ function BattleMapContent({ battleData, currentScene }) {
     const svg = svgLayerRef.current;
     svg.selectAll('*').remove();
 
-    // Create groups for each side
-    const romanGroup = svg.append('g').attr('class', 'roman-troops');
-    const carthaginianGroup = svg.append('g').attr('class', 'carthaginian-troops');
+    // Create groups for each army
+    const armyGroups = {};
+    Object.keys(battleData.battleInfo.armies).forEach(armyId => {
+      armyGroups[armyId] = svg.append('g').attr('class', `${armyId}-troops`);
+    });
 
     // Add arrow marker definition
     const defs = svg.append('defs');
@@ -168,7 +170,8 @@ function BattleMapContent({ battleData, currentScene }) {
         return { unit: null, troop, endPoint: null };
       }
 
-      const group = troop.side === 'roman' ? romanGroup : carthaginianGroup;
+      const army = battleData.battleInfo.armies[troop.side];
+      const group = armyGroups[troop.side];
       const currentPos = currentScene === 0 ? 
         troop.position : 
         (previousState?.position || troop.position);
@@ -196,17 +199,36 @@ function BattleMapContent({ battleData, currentScene }) {
       // Add main circle with status-based styling
       const mainCircle = unit.append('circle')
         .attr('r', radius)
-        .attr('fill', troop.side === 'roman' ? '#e63946' : '#1d3557')
+        .attr('fill', army.color)
         .attr('stroke', '#fff')
         .attr('stroke-width', 1)
         .attr('pointer-events', 'all');
 
-      // Add type indicator
-      if (troop.type === 'cavalry') {
-        unit.append('circle')
-          .attr('r', radius / 3)
-          .attr('fill', '#fff')
-          .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+      // Add type-specific indicators to units
+      switch(troop.type) {
+        case 'cavalry':
+          unit.append('circle')
+            .attr('r', radius / 3)
+            .attr('fill', '#fff')
+            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+          break;
+        case 'artillery':
+          unit.append('rect')
+            .attr('x', -radius/3)
+            .attr('y', -radius/3)
+            .attr('width', radius*2/3)
+            .attr('height', radius*2/3)
+            .attr('fill', '#fff')
+            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+          break;
+        case 'naval':
+          unit.append('path')
+            .attr('d', `M${-radius/2},${-radius/2} L${radius/2},${radius/2} M${-radius/2},${radius/2} L${radius/2},${-radius/2}`)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 2)
+            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+          break;
+        // Add more unit type visualizations as needed
       }
 
       // Add hover tooltip
@@ -218,8 +240,8 @@ function BattleMapContent({ battleData, currentScene }) {
       tooltip.append('rect')
         .attr('rx', 5)
         .attr('ry', 5)
-        .attr('width', 200)
-        .attr('height', 100)
+        .attr('width', 250)
+        .attr('height', 120)
         .attr('fill', 'black')
         .attr('opacity', 0.8);
 
@@ -227,28 +249,31 @@ function BattleMapContent({ battleData, currentScene }) {
         .attr('x', 10)
         .attr('y', 20)
         .attr('fill', 'white')
-        .text(`Army: ${troop.side.charAt(0).toUpperCase() + troop.side.slice(1)}`);
+        .text(`${troop.name}`);
 
       tooltip.append('text')
         .attr('x', 10)
         .attr('y', 40)
         .attr('fill', 'white')
-        .text(`Type: ${troop.type.charAt(0).toUpperCase() + troop.type.slice(1)}`);
+        .text(`Army: ${army.name}`);
 
       tooltip.append('text')
         .attr('x', 10)
         .attr('y', 60)
         .attr('fill', 'white')
-        .text(`Size: ${troop.size.toLocaleString()} troops`);
+        .text(`Type: ${troop.type.charAt(0).toUpperCase() + troop.type.slice(1)}`);
 
-      // Get the current status (either from previous state or current troop)
-      const currentStatus = previousState?.status || troop.status;
-      
       tooltip.append('text')
         .attr('x', 10)
         .attr('y', 80)
-        .attr('fill', currentStatus === 'active' ? '#4ade80' : currentStatus === 'routed' ? '#fbbf24' : '#ef4444')
-        .text(`Status: ${currentStatus.charAt(0).toUpperCase() + currentStatus.slice(1)}`);
+        .attr('fill', 'white')
+        .text(`Size: ${troop.size.toLocaleString()} troops`);
+
+      tooltip.append('text')
+        .attr('x', 10)
+        .attr('y', 100)
+        .attr('fill', previousState?.status === 'active' ? '#4ade80' : previousState?.status === 'routed' ? '#fbbf24' : '#ef4444')
+        .text(`Status: ${previousState?.status === 'active' ? 'Active' : previousState?.status === 'routed' ? 'Routed' : 'Defeated'}`);
 
       mainCircle
         .on('mouseover', () => {
@@ -340,15 +365,29 @@ function BattleMapContent({ battleData, currentScene }) {
 
     setIsAnimating(false);
 
-    // Add legend
+    // Add dynamic legend
     const legend = svg.append('g')
       .attr('class', 'legend')
       .attr('transform', 'translate(20, 20)');
 
+    // Calculate legend height based on number of armies and unit types
+    const legendItemHeight = 30;
+    const armyCount = Object.keys(battleData.battleInfo.armies).length;
+    
+    // Get unique unit types across all scenes
+    const unitTypes = new Set();
+    battleData.scenes.forEach(scene => {
+      scene.troops.forEach(troop => {
+        unitTypes.add(troop.type);
+      });
+    });
+    
+    const legendHeight = (armyCount * unitTypes.size + 1) * legendItemHeight + 20;
+
     // Background for legend
     legend.append('rect')
-      .attr('width', 180)
-      .attr('height', 160)
+      .attr('width', 250)
+      .attr('height', legendHeight)
       .attr('fill', 'black')
       .attr('opacity', 0.8)
       .attr('rx', 5)
@@ -360,79 +399,59 @@ function BattleMapContent({ battleData, currentScene }) {
       .attr('y', 30)
       .attr('fill', 'white')
       .attr('font-weight', 'bold')
-      .text('Legend');
+      .text('Army Units');
 
-    // Roman infantry
-    legend.append('circle')
-      .attr('cx', 20)
-      .attr('cy', 50)
-      .attr('r', 10)
-      .attr('fill', '#e63946')
-      .attr('opacity', 0.7)
-      .attr('stroke', '#fff');
+    // Add entries for each army and unit type
+    let yOffset = 60;
+    Object.entries(battleData.battleInfo.armies).forEach(([armyId, army]) => {
+      unitTypes.forEach(unitType => {
+        // Unit symbol
+        const unitGroup = legend.append('g')
+          .attr('transform', `translate(20, ${yOffset})`);
 
-    legend.append('text')
-      .attr('x', 40)
-      .attr('y', 55)
-      .attr('fill', 'white')
-      .text('Roman Infantry');
+        // Base circle for all unit types
+        unitGroup.append('circle')
+          .attr('r', 10)
+          .attr('fill', army.color)
+          .attr('opacity', 0.7)
+          .attr('stroke', '#fff');
 
-    // Roman cavalry
-    const romanCav = legend.append('g')
-      .attr('transform', 'translate(20, 80)');
+        // Add type-specific indicators
+        switch(unitType) {
+          case 'cavalry':
+            unitGroup.append('circle')
+              .attr('r', 3)
+              .attr('fill', '#fff')
+              .attr('opacity', 0.9);
+            break;
+          case 'artillery':
+            unitGroup.append('rect')
+              .attr('x', -3)
+              .attr('y', -3)
+              .attr('width', 6)
+              .attr('height', 6)
+              .attr('fill', '#fff')
+              .attr('opacity', 0.9);
+            break;
+          case 'naval':
+            unitGroup.append('path')
+              .attr('d', 'M-3,-3 L3,3 M-3,3 L3,-3')
+              .attr('stroke', '#fff')
+              .attr('stroke-width', 2)
+              .attr('opacity', 0.9);
+            break;
+          // Add more unit type indicators as needed
+        }
 
-    romanCav.append('circle')
-      .attr('r', 10)
-      .attr('fill', '#e63946')
-      .attr('opacity', 0.7)
-      .attr('stroke', '#fff');
+        legend.append('text')
+          .attr('x', 40)
+          .attr('y', yOffset + 5)
+          .attr('fill', 'white')
+          .text(`${army.name} ${unitType.charAt(0).toUpperCase() + unitType.slice(1)}`);
 
-    romanCav.append('circle')
-      .attr('r', 3)
-      .attr('fill', '#fff')
-      .attr('opacity', 0.9);
-
-    legend.append('text')
-      .attr('x', 40)
-      .attr('y', 85)
-      .attr('fill', 'white')
-      .text('Roman Cavalry');
-
-    // Carthaginian infantry
-    legend.append('circle')
-      .attr('cx', 20)
-      .attr('cy', 110)
-      .attr('r', 10)
-      .attr('fill', '#1d3557')
-      .attr('opacity', 0.7)
-      .attr('stroke', '#fff');
-
-    legend.append('text')
-      .attr('x', 40)
-      .attr('y', 115)
-      .attr('fill', 'white')
-      .text('Carthaginian Infantry');
-
-    // Carthaginian cavalry
-    const carthCav = legend.append('g')
-      .attr('transform', 'translate(20, 140)');
-
-    carthCav.append('circle')
-      .attr('r', 10)
-      .attr('fill', '#1d3557')
-      .attr('opacity', 0.7)
-      .attr('stroke', '#fff');
-
-    carthCav.append('circle')
-      .attr('r', 3)
-      .attr('fill', '#fff')
-      .attr('opacity', 0.9);
-
-    legend.append('text')
-      .attr('x', 40)
-      .attr('y', 145)
-      .attr('fill', 'white')
-      .text('Carthaginian Cavalry');
+        yOffset += legendItemHeight;
+      });
+    });
   };
 
   // Update visualization when scene changes
@@ -444,9 +463,9 @@ function BattleMapContent({ battleData, currentScene }) {
     <div className="w-full h-[75vh] bg-gray-700 rounded relative">
       <div ref={mapRef} className="w-full h-full" />
       {battleData && battleData.scenes[currentScene] && (
-        <div className="absolute top-0 left-0 bg-black bg-opacity-50 text-white p-2 m-2 rounded">
-          <h3 className="text-lg font-bold">{battleData.scenes[currentScene].title}</h3>
-          <p className="text-sm">{battleData.scenes[currentScene].description}</p>
+        <div className="absolute top-0 left-0 bg-black bg-opacity-50 text-white p-4 m-4 rounded max-w-[40%]">
+          <h3 className="text-xl font-bold mb-2">{battleData.scenes[currentScene].title}</h3>
+          <p className="text-base leading-relaxed">{battleData.scenes[currentScene].description}</p>
         </div>
       )}
       {isAnimating && (
