@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useContext } from 'react';
 import { BattleContext } from '../contexts/BattleContext';
 import dynamic from 'next/dynamic';
+import LoadingIndicator from './LoadingIndicator';
 
 // Dynamically import Leaflet with no SSR
 const BattleMapContent = dynamic(
@@ -11,7 +12,7 @@ const BattleMapContent = dynamic(
     ssr: false,
     loading: () => (
       <div className="w-full h-96 bg-gray-700 rounded flex items-center justify-center">
-        <p className="text-white">Loading map...</p>
+        <LoadingIndicator type="battle_scene" />
       </div>
     )
   }
@@ -23,7 +24,7 @@ function BattleMap() {
   if (!battleData) {
     return (
       <div className="w-full h-96 bg-gray-700 rounded flex items-center justify-center">
-        <p className="text-white">Loading map data...</p>
+        <LoadingIndicator type="battle_scene" />
       </div>
     );
   }
