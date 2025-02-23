@@ -5,11 +5,14 @@ import BattleMap from './BattleMap';
 import NarrativePanel from './NarrativePanel';
 import NavigationControls from './NavigationControls';
 import ProgressIndicator from './ProgressIndicator';
+import LoadingIndicator from './LoadingIndicator';
 import api from '../services/api';
 
 function BattleVisualizer({ battleName, onReset }) {
   const { setBattleData, setCurrentScene } = useContext(BattleContext);
   const [loading, setLoading] = React.useState(true);
+  const [loadingType, setLoadingType] = React.useState('wikipedia');
+  const [loadingProgress, setLoadingProgress] = React.useState(0);
   const [error, setError] = React.useState(null);
   const [showContext, setShowContext] = React.useState(true);
 
@@ -18,12 +21,28 @@ function BattleVisualizer({ battleName, onReset }) {
 
     const fetchBattleData = async () => {
       try {
+        // Step 1: Wikipedia Research
+        setLoadingType('wikipedia');
+        setLoadingProgress(0);
         const data = await api.getBattleData(battleName);
-        if (mounted) {
-          setBattleData(data);
-          setCurrentScene(0);
-          setLoading(false);
-        }
+        if (!mounted) return;
+        setLoadingProgress(33);
+
+        // Step 2: Battle Scene Creation
+        setLoadingType('battle_scene');
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing time
+        if (!mounted) return;
+        setLoadingProgress(66);
+
+        // Step 3: Narration Generation
+        setLoadingType('narration');
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing time
+        if (!mounted) return;
+        setLoadingProgress(100);
+
+        setBattleData(data);
+        setCurrentScene(0);
+        setLoading(false);
       } catch (err) {
         console.error('Error fetching battle data:', err);
         if (mounted) {
@@ -43,7 +62,7 @@ function BattleVisualizer({ battleName, onReset }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-white text-xl">Loading battle data...</div>
+        <LoadingIndicator type={loadingType} progress={loadingProgress} />
       </div>
     );
   }
