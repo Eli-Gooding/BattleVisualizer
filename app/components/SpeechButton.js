@@ -6,8 +6,15 @@ function SpeechButton({ audioUrl }) {
   const [audio, setAudio] = useState(null);
 
   useEffect(() => {
-    // Initialize audio when URL is provided
-    if (audioUrl && !audio) {
+    // Cleanup previous audio when URL changes
+    if (audio) {
+      audio.pause();
+      audio.src = '';
+      setIsPlaying(false);
+    }
+
+    // Initialize new audio when URL changes
+    if (audioUrl) {
       const newAudio = new Audio(audioUrl);
       newAudio.onended = () => setIsPlaying(false);
       setAudio(newAudio);
@@ -17,10 +24,11 @@ function SpeechButton({ audioUrl }) {
     return () => {
       if (audio) {
         audio.pause();
+        audio.src = '';
         setIsPlaying(false);
       }
     };
-  }, [audioUrl]);
+  }, [audioUrl]); // Now properly watching audioUrl changes
 
   const handleClick = async () => {
     try {

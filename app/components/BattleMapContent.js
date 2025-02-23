@@ -78,7 +78,8 @@ function BattleMapContent({ battleData, currentScene }) {
         newUnitStates[troop.id] = {
           position: troop.position,
           status: troop.status,
-          lastSeenInScene: 0
+          lastSeenInScene: 0,
+          facingAngle: 0 // Set initial facing angle to 0 degrees (east)
         };
       } else {
         // Update unit state for this scene
@@ -166,7 +167,7 @@ function BattleMapContent({ battleData, currentScene }) {
       // 2. Unit was defeated in a previous scene
       if (previousState && previousState.lastSeenInScene < currentScene &&
           (previousState.status === 'routed' || previousState.status === 'defeated')) {
-        return { unit: null, troop, endPoint: null };
+        return { unit: null, troop, positions: null };
       }
 
       const army = battleData.battleInfo.armies[troop.side];
@@ -188,53 +189,147 @@ function BattleMapContent({ battleData, currentScene }) {
 
       // Calculate size of unit representation based on troop size
       const radius = Math.sqrt(troop.size / 1000) * 5;
+      // Calculate rectangle dimensions based on unit type and size
+      const unitDimensions = {
+        width: troop.type === 'infantry' ? radius * 3 : radius * 2, // Long side is now width
+        height: troop.type === 'infantry' ? radius : radius * 1.5  // Short side is now height
+      };
 
-      // Create unit representation
+      // Calculate unit facing angle
+      const calculateFacingAngle = (start, end, defaultAngle = 0) => {
+        if (start && end && (start.lat !== end.lat || start.lng !== end.lng)) {
+          // Calculate angle based on movement direction
+          const dx = end.lng - start.lng;
+          const dy = end.lat - start.lat;
+          return (Math.atan2(dy, dx) * 180 / Math.PI) - 90; // Subtract 90 to align with east-facing default
+        }
+        return defaultAngle; // Default to previous angle or 0 (east-facing)
+      };
+
+      // Get initial facing angle based on movement or previous state
+      const initialAngle = calculateFacingAngle(
+        currentPos,
+        troop.movement?.type !== 'static' ? troop.movement.to : null,
+        previousState?.facingAngle || 0 // Default to 0 degrees (east-facing) if no previous state
+      );
+
+      // Create unit representation with rotation
       const unit = group.append('g')
-        .attr('transform', `translate(${startPoint.x},${startPoint.y})`)
-        // Set initial opacity based on status
+        .attr('transform', `translate(${startPoint.x},${startPoint.y}) rotate(${initialAngle})`)
         .style('opacity', previousState ? (previousState.status === 'routed' ? 1 : previousState.status === 'defeated' ? 0.3 : 0.7) : 0.7);
 
-      // Add main circle with status-based styling
-      const mainCircle = unit.append('circle')
-        .attr('r', radius)
-        .attr('fill', army.color)
-        .attr('stroke', '#fff')
-        .attr('stroke-width', 1)
-        .attr('pointer-events', 'all');
+      // Store initial position and angle for animations
+      const positions = {
+        start: startPoint,
+        end: endPoint,
+        startAngle: initialAngle,
+        endAngle: calculateFacingAngle(
+          troop.position,
+          troop.movement?.type !== 'static' ? troop.movement.to : null,
+          initialAngle
+        )
+      };
 
-      // Add type-specific indicators to units
+      // Function to create a sub-unit (now with rotation consideration)
+      const createSubUnit = (offsetX = 0, offsetY = 0, subUnitWidth = unitDimensions.width, subUnitHeight = unitDimensions.height) => {
+        const subUnit = unit.append('g')
+          .attr('transform', `translate(${offsetX},${offsetY})`);
+
+        // Main rectangle for the sub-unit - width is the long side and should be horizontal
+        const rect = subUnit.append('rect')
+          .attr('x', -subUnitWidth / 2)
+          .attr('y', -subUnitHeight / 2)
+          .attr('width', subUnitWidth)
+          .attr('height', subUnitHeight)
+          .attr('fill', army.color)
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 1)
+          .attr('pointer-events', 'all');
+
+        // Add direction indicator (small triangle at the front)
+        subUnit.append('path')
+          .attr('d', `M${subUnitWidth/2},0 L${subUnitWidth/2 + subUnitHeight/4},${subUnitHeight/4} L${subUnitWidth/2 + subUnitHeight/4},${-subUnitHeight/4} Z`)
+          .attr('fill', '#fff')
+          .attr('opacity', 0.7);
+
+        // Add hover events to the rectangle
+        rect.on('mouseover', () => {
+          tooltip.style('opacity', 1);
+        })
+        .on('mouseout', () => {
+          tooltip.style('opacity', 0);
+        });
+
+        return subUnit;
+      };
+
+      // Create sub-units based on unit type and name
+      if (troop.type === 'infantry') {
+        // Single rectangular formation for infantry
+        createSubUnit();
+      } else if (troop.type === 'cavalry') {
+        const name = troop.name.toLowerCase();
+        const id = troop.id.toLowerCase();
+        
+        if (name.includes('left') || id.includes('left')) {
+          // Create two smaller cavalry units for left flank
+          createSubUnit(-unitDimensions.height * 0.6, 0, unitDimensions.width, unitDimensions.height * 0.4);
+          createSubUnit(unitDimensions.height * 0.6, 0, unitDimensions.width, unitDimensions.height * 0.4);
+        } else if (name.includes('right') || id.includes('right')) {
+          // Create two smaller cavalry units for right flank
+          createSubUnit(-unitDimensions.height * 0.6, 0, unitDimensions.width, unitDimensions.height * 0.4);
+          createSubUnit(unitDimensions.height * 0.6, 0, unitDimensions.width, unitDimensions.height * 0.4);
+        } else {
+          // Single unit for other cavalry
+          createSubUnit();
+        }
+      } else if (troop.type === 'artillery') {
+        // More square formation for artillery
+        createSubUnit(0, 0, unitDimensions.width, unitDimensions.height);
+      }
+
+      // Add type-specific indicators
       switch(troop.type) {
         case 'cavalry':
-          unit.append('circle')
-            .attr('r', radius / 3)
-            .attr('fill', '#fff')
-            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+          // Add small dots in the center of each cavalry sub-unit
+          if (troop.name.toLowerCase().includes('left') || troop.id.toLowerCase().includes('left')) {
+            unit.append('circle')
+              .attr('cx', -unitDimensions.height * 0.6)
+              .attr('r', 2)
+              .attr('fill', '#fff');
+            unit.append('circle')
+              .attr('cx', unitDimensions.height * 0.6)
+              .attr('r', 2)
+              .attr('fill', '#fff');
+          } else if (troop.name.toLowerCase().includes('right') || troop.id.toLowerCase().includes('right')) {
+            unit.append('circle')
+              .attr('cx', -unitDimensions.height * 0.6)
+              .attr('r', 2)
+              .attr('fill', '#fff');
+            unit.append('circle')
+              .attr('cx', unitDimensions.height * 0.6)
+              .attr('r', 2)
+              .attr('fill', '#fff');
+          } else {
+            unit.append('circle')
+              .attr('r', 2)
+              .attr('fill', '#fff');
+          }
           break;
         case 'artillery':
-          unit.append('rect')
-            .attr('x', -radius/3)
-            .attr('y', -radius/3)
-            .attr('width', radius*2/3)
-            .attr('height', radius*2/3)
-            .attr('fill', '#fff')
-            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
-          break;
-        case 'naval':
+          // Add cross marker for artillery
           unit.append('path')
-            .attr('d', `M${-radius/2},${-radius/2} L${radius/2},${radius/2} M${-radius/2},${radius/2} L${radius/2},${-radius/2}`)
+            .attr('d', `M-${unitDimensions.height/4},0 L${unitDimensions.height/4},0 M0,-${unitDimensions.width/2} L0,${unitDimensions.width/2}`)
             .attr('stroke', '#fff')
-            .attr('stroke-width', 2)
-            .attr('opacity', previousState?.status === 'defeated' ? 0.3 : 0.9);
+            .attr('stroke-width', 2);
           break;
-        // Add more unit type visualizations as needed
       }
 
       // Add hover tooltip
       const tooltip = unit.append('g')
         .attr('class', 'tooltip')
         .style('opacity', 0)
-        .attr('transform', `translate(${radius + 10}, -${radius})`);
+        .attr('transform', `translate(${unitDimensions.width + 10}, -${unitDimensions.height})`);
 
       tooltip.append('rect')
         .attr('rx', 5)
@@ -274,15 +369,7 @@ function BattleMapContent({ battleData, currentScene }) {
         .attr('fill', previousState?.status === 'active' ? '#4ade80' : previousState?.status === 'routed' ? '#fbbf24' : '#ef4444')
         .text(`Status: ${previousState?.status === 'active' ? 'Active' : previousState?.status === 'routed' ? 'Routed' : 'Defeated'}`);
 
-      mainCircle
-        .on('mouseover', () => {
-          tooltip.style('opacity', 1);
-        })
-        .on('mouseout', () => {
-          tooltip.style('opacity', 0);
-        });
-
-      return { unit, troop, endPoint };
+      return { unit, troop, positions };
     });
 
     if (animate) {
@@ -303,7 +390,7 @@ function BattleMapContent({ battleData, currentScene }) {
       }));
 
       // Then animate the troops
-      await Promise.all(troopElements.map(({ unit, troop, endPoint }) => {
+      await Promise.all(troopElements.map(({ unit, troop, positions }) => {
         // Skip if unit is null (routed from previous scene)
         if (!unit) return Promise.resolve();
 
@@ -314,18 +401,29 @@ function BattleMapContent({ battleData, currentScene }) {
               .duration(2000)
               .style('opacity', 0.1)
               .end()
-              .then(resolve);
+              .then(() => {
+                // Update the unit's state
+                setUnitStates(prev => ({
+                  ...prev,
+                  [troop.id]: {
+                    position: troop.position,
+                    status: 'defeated',
+                    lastSeenInScene: currentScene
+                  }
+                }));
+                resolve();
+              });
           });
         } else if (troop.status === 'routed') {
           return new Promise(resolve => {
             unit.transition()
               .delay(500)
               .duration(2000)
-              .attr('transform', `translate(${endPoint.x},${endPoint.y})`)
+              .attr('transform', `translate(${positions.end.x},${positions.end.y})`)
               .style('opacity', 0)
               .end()
               .then(() => {
-                // Update the unit's position and status properly
+                // Update the unit's position and status
                 setUnitStates(prev => ({
                   ...prev,
                   [troop.id]: {
@@ -339,26 +437,51 @@ function BattleMapContent({ battleData, currentScene }) {
           });
         } else if (troop.movement && troop.movement.type !== 'static') {
           return new Promise(resolve => {
+            // First, ensure the unit is at its starting position and angle
+            unit.attr('transform', `translate(${positions.start.x},${positions.start.y}) rotate(${positions.startAngle})`);
+            
+            // Then animate to the new position and angle
             unit.transition()
               .delay(500)
               .duration(2000)
-              .attr('transform', `translate(${endPoint.x},${endPoint.y})`)
+              .attrTween('transform', () => {
+                return (t) => {
+                  // Interpolate both position and rotation
+                  const x = positions.start.x + (positions.end.x - positions.start.x) * t;
+                  const y = positions.start.y + (positions.end.y - positions.start.y) * t;
+                  const angle = positions.startAngle + (positions.endAngle - positions.startAngle) * t;
+                  return `translate(${x},${y}) rotate(${angle})`;
+                };
+              })
               .end()
               .then(() => {
-                // Update the unit's position maintaining the same structure
                 setUnitStates(prev => ({
                   ...prev,
                   [troop.id]: {
                     position: troop.movement.to,
                     status: troop.status,
-                    lastSeenInScene: currentScene
+                    lastSeenInScene: currentScene,
+                    facingAngle: positions.endAngle // Store the facing angle in unit state
                   }
                 }));
                 resolve();
               });
           });
+        } else {
+          // For static units, ensure they stay in their current position
+          return new Promise(resolve => {
+            unit.attr('transform', `translate(${positions.start.x},${positions.start.y})`);
+            setUnitStates(prev => ({
+              ...prev,
+              [troop.id]: {
+                position: troop.position,
+                status: troop.status,
+                lastSeenInScene: currentScene
+              }
+            }));
+            resolve();
+          });
         }
-        return Promise.resolve();
       }));
     }
 
@@ -408,9 +531,12 @@ function BattleMapContent({ battleData, currentScene }) {
         const unitGroup = legend.append('g')
           .attr('transform', `translate(20, ${yOffset})`);
 
-        // Base circle for all unit types
-        unitGroup.append('circle')
-          .attr('r', 10)
+        // Base shape for all unit types
+        unitGroup.append('rect')
+          .attr('x', -10)
+          .attr('y', -5)
+          .attr('width', 20)
+          .attr('height', 10)
           .attr('fill', army.color)
           .attr('opacity', 0.7)
           .attr('stroke', '#fff');
@@ -419,27 +545,16 @@ function BattleMapContent({ battleData, currentScene }) {
         switch(unitType) {
           case 'cavalry':
             unitGroup.append('circle')
-              .attr('r', 3)
+              .attr('r', 2)
               .attr('fill', '#fff')
               .attr('opacity', 0.9);
             break;
           case 'artillery':
-            unitGroup.append('rect')
-              .attr('x', -3)
-              .attr('y', -3)
-              .attr('width', 6)
-              .attr('height', 6)
-              .attr('fill', '#fff')
-              .attr('opacity', 0.9);
-            break;
-          case 'naval':
             unitGroup.append('path')
-              .attr('d', 'M-3,-3 L3,3 M-3,3 L3,-3')
+              .attr('d', 'M-5,0 L5,0 M0,-5 L0,5')
               .attr('stroke', '#fff')
-              .attr('stroke-width', 2)
-              .attr('opacity', 0.9);
+              .attr('stroke-width', 2);
             break;
-          // Add more unit type indicators as needed
         }
 
         legend.append('text')
