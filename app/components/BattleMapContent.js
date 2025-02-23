@@ -195,13 +195,20 @@ function BattleMapContent({ battleData, currentScene }) {
         height: troop.type === 'infantry' ? radius : radius * 1.5  // Short side is now height
       };
 
+      // For miscellaneous unit types (not infantry/cavalry/artillery), adjust dimensions
+      if (!['infantry', 'cavalry', 'artillery'].includes(troop.type)) {
+        unitDimensions.width = radius * 2.5;  // Medium length
+        unitDimensions.height = radius * 1.2; // Slightly taller than standard
+      }
+
       // Calculate unit facing angle
       const calculateFacingAngle = (start, end, defaultAngle = 0) => {
         if (start && end && (start.lat !== end.lat || start.lng !== end.lng)) {
           // Calculate angle based on movement direction
           const dx = end.lng - start.lng;
           const dy = end.lat - start.lat;
-          return (Math.atan2(dy, dx) * 180 / Math.PI) - 90; // Subtract 90 to align with east-facing default
+          // Add 90 degrees to make the long side perpendicular to movement
+          return (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
         }
         return defaultAngle; // Default to previous angle or 0 (east-facing)
       };
@@ -210,7 +217,7 @@ function BattleMapContent({ battleData, currentScene }) {
       const initialAngle = calculateFacingAngle(
         currentPos,
         troop.movement?.type !== 'static' ? troop.movement.to : null,
-        previousState?.facingAngle || 0 // Default to 0 degrees (east-facing) if no previous state
+        previousState?.facingAngle || 90 // Default to 90 degrees if no previous state (facing north)
       );
 
       // Create unit representation with rotation
@@ -286,6 +293,9 @@ function BattleMapContent({ battleData, currentScene }) {
       } else if (troop.type === 'artillery') {
         // More square formation for artillery
         createSubUnit(0, 0, unitDimensions.width, unitDimensions.height);
+      } else {
+        // Default representation for other unit types (archers, skirmishers, etc.)
+        createSubUnit();
       }
 
       // Add type-specific indicators
@@ -322,6 +332,13 @@ function BattleMapContent({ battleData, currentScene }) {
             .attr('d', `M-${unitDimensions.height/4},0 L${unitDimensions.height/4},0 M0,-${unitDimensions.width/2} L0,${unitDimensions.width/2}`)
             .attr('stroke', '#fff')
             .attr('stroke-width', 2);
+          break;
+        default:
+          // Add a distinctive marker for other unit types (diamond shape)
+          unit.append('path')
+            .attr('d', `M0,-${unitDimensions.height/3} L${unitDimensions.height/3},0 L0,${unitDimensions.height/3} L-${unitDimensions.height/3},0 Z`)
+            .attr('fill', '#fff')
+            .attr('opacity', 0.7);
           break;
       }
 
