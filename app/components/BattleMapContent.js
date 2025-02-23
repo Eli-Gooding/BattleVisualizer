@@ -176,17 +176,6 @@ function BattleMapContent({ battleData, currentScene }) {
         troop.position : 
         (previousState?.position || troop.position);
 
-      const startPoint = mapInstanceRef.current.latLngToLayerPoint([
-        currentPos.lat,
-        currentPos.lng
-      ]);
-      const endPoint = troop.movement && troop.movement.type !== 'static' 
-        ? mapInstanceRef.current.latLngToLayerPoint([
-            troop.movement.to.lat,
-            troop.movement.to.lng
-          ])
-        : startPoint;
-
       // Calculate size of unit representation based on troop size
       const radius = Math.sqrt(troop.size / 1000) * 5;
       // Calculate rectangle dimensions based on unit type and size
@@ -201,48 +190,94 @@ function BattleMapContent({ battleData, currentScene }) {
         unitDimensions.height = radius * 1.2; // Slightly taller than standard
       }
 
-      // Calculate unit facing angle
+      // Calculate unit facing angle based on movement vector
       const calculateFacingAngle = (start, end, defaultAngle = 0) => {
         if (start && end && (start.lat !== end.lat || start.lng !== end.lng)) {
           // Calculate angle based on movement direction
           const dx = end.lng - start.lng;
           const dy = end.lat - start.lat;
-          // Add 90 degrees to make the long side perpendicular to movement
+          // Make the long side (front) perpendicular to movement direction
           return (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
         }
-        return defaultAngle; // Default to previous angle or 0 (east-facing)
+        return defaultAngle;
+      };
+
+      // Get the starting position based on previous scene or initial position
+      const getStartPosition = (troop) => {
+        if (currentScene === 0) {
+          return troop.position;
+        }
+        
+        const prevScene = battleData.scenes[currentScene - 1];
+        const prevTroop = prevScene.troops.find(t => t.id === troop.id);
+        if (prevTroop && prevTroop.movement) {
+          // Use the previous scene's movement destination as the starting point
+          return prevTroop.movement.to;
+        }
+        return troop.position;
       };
 
       // Get initial facing angle based on movement or previous state
-      const initialAngle = calculateFacingAngle(
-        currentPos,
-        troop.movement?.type !== 'static' ? troop.movement.to : null,
-        previousState?.facingAngle || 90 // Default to 90 degrees if no previous state (facing north)
-      );
+      const getInitialAngle = (troop, startPos) => {
+        if (currentScene === 0) {
+          // For initial deployment, face the enemy (this depends on army's starting side)
+          return troop.side.toLowerCase().includes('north') ? 180 :
+                 troop.side.toLowerCase().includes('south') ? 0 :
+                 troop.side.toLowerCase().includes('east') ? 270 :
+                 troop.side.toLowerCase().includes('west') ? 90 : 0;
+        }
+
+        const prevScene = battleData.scenes[currentScene - 1];
+        const prevTroop = prevScene.troops.find(t => t.id === troop.id);
+        if (prevTroop) {
+          // Use the previous scene's movement direction
+          return calculateFacingAngle(
+            prevTroop.position,
+            prevTroop.movement.to,
+            previousState?.facingAngle || 0
+          );
+        }
+        return previousState?.facingAngle || 0;
+      };
+
+      // Get the current position and calculate movement
+      const startPos = getStartPosition(troop);
+      const startPoint = mapInstanceRef.current.latLngToLayerPoint([
+        startPos.lat,
+        startPos.lng
+      ]);
+      const endPoint = troop.movement && troop.movement.type !== 'static' 
+        ? mapInstanceRef.current.latLngToLayerPoint([
+            troop.movement.to.lat,
+            troop.movement.to.lng
+          ])
+        : startPoint;
+
+      // Calculate initial and final angles
+      const initialAngle = getInitialAngle(troop, startPos);
+      const finalAngle = troop.movement && troop.movement.type !== 'static'
+        ? calculateFacingAngle(startPos, troop.movement.to, initialAngle)
+        : initialAngle;
 
       // Create unit representation with rotation
       const unit = group.append('g')
         .attr('transform', `translate(${startPoint.x},${startPoint.y}) rotate(${initialAngle})`)
         .style('opacity', previousState ? (previousState.status === 'routed' ? 1 : previousState.status === 'defeated' ? 0.3 : 0.7) : 0.7);
 
-      // Store initial position and angle for animations
+      // Store positions and angles for animations
       const positions = {
         start: startPoint,
         end: endPoint,
         startAngle: initialAngle,
-        endAngle: calculateFacingAngle(
-          troop.position,
-          troop.movement?.type !== 'static' ? troop.movement.to : null,
-          initialAngle
-        )
+        endAngle: finalAngle
       };
 
-      // Function to create a sub-unit (now with rotation consideration)
+      // Function to create a sub-unit with proper orientation
       const createSubUnit = (offsetX = 0, offsetY = 0, subUnitWidth = unitDimensions.width, subUnitHeight = unitDimensions.height) => {
         const subUnit = unit.append('g')
           .attr('transform', `translate(${offsetX},${offsetY})`);
 
-        // Main rectangle for the sub-unit - width is the long side and should be horizontal
+        // Main rectangle for the sub-unit - width is the long side and should be perpendicular to movement
         const rect = subUnit.append('rect')
           .attr('x', -subUnitWidth / 2)
           .attr('y', -subUnitHeight / 2)

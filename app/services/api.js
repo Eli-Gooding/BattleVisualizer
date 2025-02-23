@@ -335,44 +335,43 @@ const api = {
       let battleReport;
 
       try {
-        // First, search for potential matches
-        const searchResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
-          params: {
-            action: 'opensearch',
-            search: encodedSearchQuery,
-            namespace: 0, // Main namespace only
-            limit: 5, // Get top 5 results
-            format: 'json',
-            origin: '*'
-          }
-        });
+        // Create an array of search variations
+        const searchVariations = [
+          searchQuery,
+          `Battle of ${searchQuery}`,
+          `Operation ${searchQuery}`,
+          `${searchQuery} Campaign`,
+          `${searchQuery} Offensive`,
+          `${searchQuery} Counteroffensive`,
+          `${searchQuery} landings`
+        ];
 
-        const [_, titles, descriptions, urls] = searchResponse.data;
-        
-        // Find the most relevant battle result
-        let battleTitle = null;
-        for (let i = 0; i < titles.length; i++) {
-          const title = titles[i].toLowerCase();
-          const desc = descriptions[i].toLowerCase();
-          // Check if it's likely a battle page
-          if (
-            title.includes('battle') || 
-            desc.includes('battle') || 
-            desc.includes('military') ||
-            desc.includes('fought') ||
-            desc.includes('conflict')
-          ) {
-            battleTitle = titles[i];
-            break;
-          }
+        // Common battle name mappings
+        const battleMappings = {
+          'd-day': ['Normandy landings', 'Operation Overlord', 'D-Day'],
+          'battle of the bulge': ['Ardennes Counteroffensive', 'Battle of the Bulge'],
+          'normandy': ['Operation Overlord', 'Normandy landings', 'D-Day'],
+          'bulge': ['Ardennes Counteroffensive', 'Battle of the Bulge'],
+          'overlord': ['Operation Overlord', 'Normandy landings'],
+          'market garden': ['Operation Market Garden'],
+          'barbarossa': ['Operation Barbarossa']
+        };
+
+        // Add mapped variations if they exist
+        const normalizedQuery = searchQuery.toLowerCase().replace(/[-\s]+/g, ' ');
+        if (battleMappings[normalizedQuery]) {
+          searchVariations.push(...battleMappings[normalizedQuery]);
         }
 
-        if (!battleTitle) {
-          // Try with "Battle of" prefix
-          const retryResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
+        let battleTitle = null;
+        let bestMatch = null;
+
+        // Try each variation until we find a match
+        for (const variation of searchVariations) {
+          const searchResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
             params: {
               action: 'opensearch',
-              search: `Battle of ${encodedSearchQuery}`,
+              search: variation,
               namespace: 0,
               limit: 5,
               format: 'json',
@@ -380,20 +379,52 @@ const api = {
             }
           });
 
-          const [_, retryTitles, retryDescriptions] = retryResponse.data;
-          for (let i = 0; i < retryTitles.length; i++) {
-            const title = retryTitles[i].toLowerCase();
-            const desc = retryDescriptions[i].toLowerCase();
+          const [_, titles, descriptions, urls] = searchResponse.data;
+          
+          // Find the most relevant battle result
+          for (let i = 0; i < titles.length; i++) {
+            const title = titles[i].toLowerCase();
+            const desc = descriptions[i].toLowerCase();
+            // Check if it's likely a battle page
             if (
               title.includes('battle') || 
+              title.includes('siege') ||
+              title.includes('operation') ||
+              title.includes('campaign') ||
+              title.includes('invasion') ||
+              title.includes('raid') ||
+              title.includes('assault') ||
+              title.includes('offensive') ||
+              title.includes('defense') ||
+              title.includes('attack') ||
+              title.includes('war') ||
+              title.includes('landing') ||
               desc.includes('battle') || 
+              desc.includes('siege') ||
               desc.includes('military') ||
               desc.includes('fought') ||
-              desc.includes('conflict')
+              desc.includes('conflict') ||
+              desc.includes('offensive') ||
+              desc.includes('defense') ||
+              desc.includes('assault') ||
+              desc.includes('landing') ||
+              desc.includes('combat') ||
+              desc.includes('warfare') ||
+              desc.includes('troops') ||
+              desc.includes('forces') ||
+              desc.includes('army') ||
+              desc.includes('campaign') ||
+              desc.includes('conquered') ||
+              desc.includes('captured') ||
+              desc.includes('invasion')
             ) {
-              battleTitle = retryTitles[i];
+              battleTitle = titles[i];
               break;
             }
+          }
+
+          if (battleTitle) {
+            break;
           }
         }
 
