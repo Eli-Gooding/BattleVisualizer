@@ -13,6 +13,11 @@ function LoadingIndicator({ type, progress }) {
           message: 'Creating battle scenes...',
           details: 'Analyzing troop movements and positions'
         };
+      case 'scene_validation':
+        return {
+          message: 'Validating battle scenes...',
+          details: 'Ensuring tactical consistency and movement accuracy'
+        };
       case 'narration':
         return {
           message: 'Generating narration...',

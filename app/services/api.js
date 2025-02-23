@@ -282,6 +282,50 @@ const validateAndCorrectPositions = (data) => {
   return data;
 };
 
+// Add scene validation helper
+const validateSceneConsistency = async (data) => {
+  try {
+    const validationCall = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: `You are a military tactics expert. Review these battle scenes and ensure troop movements are logically consistent with the scene descriptions. Pay special attention to:
+1. Cardinal directions (units moving from north should be positioned north)
+2. Unit interactions (if unit A attacks unit B, they should meet)
+3. Terrain features mentioned in descriptions
+4. Formation integrity (units should maintain relative positions unless explicitly moving)
+5. Movement realism (units shouldn't teleport or move impossibly)
+
+If you find inconsistencies, correct the troop positions and movements while maintaining the overall battle narrative.
+
+Return ONLY the corrected scenes array with the same structure but with adjusted positions and movements. Do not modify unit IDs, types, or the basic narrative flow.`
+        },
+        {
+          role: "user",
+          content: `Validate and correct these scenes: ${JSON.stringify(data.scenes, null, 2)}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000
+    });
+
+    try {
+      const correctedScenes = JSON.parse(validationCall.choices[0].message.content);
+      if (Array.isArray(correctedScenes)) {
+        data.scenes = correctedScenes;
+      }
+    } catch (parseError) {
+      console.error('Failed to parse scene validation response:', parseError);
+      // Continue with original scenes if parsing fails
+    }
+  } catch (error) {
+    console.error('Error during scene validation:', error);
+    // Continue with original scenes if validation fails
+  }
+  return data;
+};
+
 const api = {
   getBattleData: async (battleName) => {
     try {
@@ -487,6 +531,10 @@ IMPORTANT:
 
       // Combine the responses
       firstPartData.scenes = [...firstPartData.scenes, ...remainingScenes];
+
+      // Validate scene consistency before coordinate normalization
+      console.log('Validating scene consistency...');
+      firstPartData = await validateSceneConsistency(firstPartData);
 
       // After normalizing coordinates but before validation
       firstPartData = normalizeCoordinates(firstPartData);

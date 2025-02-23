@@ -26,17 +26,23 @@ function BattleVisualizer({ battleName, onReset }) {
         setLoadingProgress(0);
         const data = await api.getBattleData(battleName);
         if (!mounted) return;
-        setLoadingProgress(33);
+        setLoadingProgress(25);
 
         // Step 2: Battle Scene Creation
         setLoadingType('battle_scene');
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing time
+        await new Promise(resolve => setTimeout(resolve, 1000));
         if (!mounted) return;
-        setLoadingProgress(66);
+        setLoadingProgress(50);
 
-        // Step 3: Narration Generation
+        // Step 3: Scene Validation
+        setLoadingType('scene_validation');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!mounted) return;
+        setLoadingProgress(75);
+
+        // Step 4: Narration Generation
         setLoadingType('narration');
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing time
+        await new Promise(resolve => setTimeout(resolve, 1000));
         if (!mounted) return;
         setLoadingProgress(100);
 

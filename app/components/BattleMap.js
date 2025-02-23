@@ -1,20 +1,16 @@
 'use client';
 
-import React, { useEffect, useRef, useContext } from 'react';
+import React, { useContext } from 'react';
 import { BattleContext } from '../contexts/BattleContext';
 import dynamic from 'next/dynamic';
-import LoadingIndicator from './LoadingIndicator';
+import 'leaflet/dist/leaflet.css';
 
-// Dynamically import Leaflet with no SSR
+// Dynamically import BattleMapContent without SSR
 const BattleMapContent = dynamic(
-  () => import('./BattleMapContent'),
+  () => import('./BattleMapContent').then(mod => mod.default),
   { 
     ssr: false,
-    loading: () => (
-      <div className="w-full h-96 bg-gray-700 rounded flex items-center justify-center">
-        <LoadingIndicator type="battle_scene" />
-      </div>
-    )
+    loading: () => null // Remove loading indicator since parent already handles loading state
   }
 );
 
@@ -22,11 +18,7 @@ function BattleMap() {
   const { battleData, currentScene } = useContext(BattleContext);
 
   if (!battleData) {
-    return (
-      <div className="w-full h-96 bg-gray-700 rounded flex items-center justify-center">
-        <LoadingIndicator type="battle_scene" />
-      </div>
-    );
+    return null; // Return null since parent already handles loading state
   }
 
   return <BattleMapContent battleData={battleData} currentScene={currentScene} />;
